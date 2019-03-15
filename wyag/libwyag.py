@@ -144,6 +144,92 @@ argsp.add_argument("path",
                    default=".",
                    help="Where to create the repository.")
 
+
 def cmd_init(args):
     repo_create(args.path)
 
+
+def repo_find(path=".", required=True):
+    path = os.path.realpath(path)
+
+    if os.path.isdir(os.path.join(path, ".git")):
+        return GitRepository(path)
+    
+    parent = os.path.realpath(os.path.join(path, ".."))
+
+    if parent == path:
+        if required:
+            raise Exception("No git directory")
+        else:
+            return None
+
+    return repo_find(parent, required)
+
+
+class GitObject():
+    """General git object class"""
+
+    repo = None
+
+
+    def __init__(self, repo, data=None):
+        self.repo = repo
+
+        if data != None:
+            self.deserialize(data)
+
+
+    def serialize(self):
+        """Implemented by subclasses"""
+        raise Exception("Unimplemented!")
+
+
+    def deserialize(self, data):
+        raise Exception("Unimplemented!")
+
+
+def object_read(repo, sha):
+    path = repo_file(repo, "objects", sha[0:2], sha[2:])
+
+    with open(path, "rb") as f:
+        raw = zlib.decompress(f.read())
+        
+        # Object type
+        x = raw.find(b' ')
+        fmt = raw[0:x]
+
+        y = raw.find(b'\x00', x)
+        size = int(raw[x:y].decode("ascii"))
+        if size != len(raw)-y-1:
+            raise Exception("Malformed object %s: bad length!" % sha)
+        
+        if fmt ==b'commit':
+            c = GitCommit
+        if fmt ==b'tree':
+            c = GitTree
+        if fmt ==b'tag':
+            c = GitTag
+        if fmt == b'blob':
+            c = GitBlob
+        else:
+            raise Exception("Unknown type %s for object %s" %(fmt.decode("ascii"), sha))
+
+        return c(repo, raw[y+1:])
+
+# TODO, for now a placeholder
+def object_find(repo, name, fmt=None, follow=True):
+    return name
+
+
+def write_object(obj, actually_write=True):
+    data = obj.serialize()
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    sha = hashlib.sha1(result).hexdigest()
+
+    if actually_write:
+        path = repo_file(obj.repo, "objects", sha[0:2], sha[2:0], mkdir=actually_write)
+
+        with open(path, 'wb') as f:
+            f.write(zlib.compress(result))
+
+    return sha
