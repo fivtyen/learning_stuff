@@ -410,3 +410,46 @@ def log_graphviz(repo, sha, seen):
         p = p.decode("ascii")
         print("c_{} -> c_{}".format(sha, p))
         log_graphviz(repo, p, seen)
+
+
+class GItTreeLeaf(object):
+    def __init__(self, mode, path, sha):
+        self.mode = mode
+        self.path = path
+        self.sha = sha
+
+
+def tree_parse_one(raw, start=0):
+    x = raw.find(b' ', start)
+    assert x-start == 5 or x-start == 6
+
+    mode = raw[start:x]
+
+    y = raw.find(b'\x00', x)
+    path = raw[x+1:y]
+
+    sha = hex(int.from_bytes(raw[y+1:y+21], "big"))[2:]
+
+    return y+21, GItTreeLeaf(mode, path, sha)
+
+
+def tree_parse(raw):
+    pos = 0
+    max = len(raw)
+    ret = list()
+    while pos < max:
+        pos, data = tree_parse_one(raw, pos)
+        ret.append(data)
+    return ret
+
+
+def tree_serialize(obj):
+    ret = b''
+    for i in obj.items:
+        ret += i.mode
+        ret += b''
+        ret += i.path
+        ret += b'\x00'
+        sha = int(i.sha, 16)
+        ret += sha.to_bytes(20, byteorder="big")
+    return ret
