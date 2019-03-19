@@ -453,3 +453,49 @@ def tree_serialize(obj):
         sha = int(i.sha, 16)
         ret += sha.to_bytes(20, byteorder="big")
     return ret
+
+
+class GitTree(GitObject):
+    fmt = b'tree'
+
+    def deserialize(self, data):
+        self.items = tree_parse(data)
+
+    def serialize(self):
+        return tree_serialize(self)
+
+
+argsp = argsubparsers.add_parser("checkout", help="Checkout a commit")
+argsp.add_argument("commit", help="The commit or tree to checkout")
+argsp.add_argument("path", help="The empty directory to checkout on")
+
+
+def cmd_checkout(args):
+    repo = repo_find()
+    obj = object_read(repo, object_find(repo, args.commit))
+
+    if obj.fmt == b"commit":
+        obj = object_read(repo, obj.kvlm[b"tree"].decode("ascii"))
+
+    if os.path.exists(args.path):
+        if not os.path.isdir(args.path):
+            raise Exception("Not a directory %s" % args.path)
+        if os.listdir(args.path):
+            raise Exception("Direcotry not empty %s " % args.path)
+    else:
+        os.makedirs(args.path)
+
+    tree_checkout(repo, obj, os.path.realpath(args.path).encode())
+
+
+def tree_checkout(repo, tree, path):
+    for item in tree.items:
+        obj = object_read(repo, item.data)
+        dest = os.path.join(path, item.path)
+    
+    if obj.fmt == b'tree':
+        os.mkdir(dest)
+        tree_checkout(repo, obj, dest)
+    elif obj.fmt == b'blob':
+        with open(dest, "wb") as f:
+            f.write(obj.blobdata)
