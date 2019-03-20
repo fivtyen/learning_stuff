@@ -16,34 +16,35 @@ def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
 
     if  args.command == "add": 
+        # placeholder
         pass
     #     cmd_add(args)
     elif args.command == "cat-file": 
         cmd_cat_file(args)
-    # elif args.command == "checkout": 
-    #     cmd_checkout(args)
+    elif args.command == "checkout": 
+        cmd_checkout(args)
     # elif args.command == "commit": 
     #     cmd_commit(args)
-    # elif args.command == "hash-object": 
-    #     cmd_hash_object(args)
+    elif args.command == "hash-object": 
+        cmd_hash_object(args)
     elif args.command == "init": 
         cmd_init(args)
-    # elif args.command == "log": 
-    #     cmd_log(args)
+    elif args.command == "log": 
+        cmd_log(args)
     # elif args.command == "ls-tree": 
     #     cmd_ls_tree(args)
     # elif args.command == "merge": 
     #     cmd_merge(args)
     # elif args.command == "rebase": 
     #     cmd_rebase(args)
-    # elif args.command == "rev-parse": 
-    #     cmd_rev_parse(args)
+    elif args.command == "rev-parse": 
+        cmd_rev_parse(args)
     # elif args.command == "rm": 
     #     cmd_rm(args)
-    # elif args.command == "show-ref": 
-    #     cmd_show_ref(args)
-    # elif args.command == "tag": 
-    #     cmd_tag(args)
+    elif args.command == "show-ref": 
+        cmd_show_ref(args)
+    elif args.command == "tag": 
+        cmd_tag(args)
 
 
 class GitRepository():
@@ -204,12 +205,12 @@ def object_read(repo, sha):
         if size != len(raw)-y-1:
             raise Exception("Malformed object %s: bad length!" % sha)
         
-        # if fmt ==b'commit':
-        #     c = GitCommit
-        # if fmt ==b'tree':
-        #     c = GitTree
-        # if fmt ==b'tag':
-        #     c = GitTag
+        if fmt ==b'commit':
+            c = GitCommit
+        if fmt ==b'tree':
+            c = GitTree
+        if fmt ==b'tag':
+            c = GitTag
         if fmt == b'blob':
             c = GitBlob
         else:
@@ -218,12 +219,61 @@ def object_read(repo, sha):
         return c(repo, raw[y+1:])
 
 
-# TODO, for now a placeholder
+def object_resolve(repo, name):
+    candidates = list()
+    hashRE = re.compile(r"^[0-9A-Fa-f]{1,16}$")
+    smallHashRE = re.compile(r"^[0-9A-Fa-f]{1,16}$")
+
+    if not name.strip():
+        return None
+
+    if name == "HEAD":
+        return [ref_resolve(repo, "HEAD")]
+
+    if hashRE.match(name):
+        if len(name) == 40:
+            return [name.lower()]
+        elif len(name)  >= 4:
+            name = name.lower()
+            prefix = name[0:2]
+            path = repo_dir(repo, "objects", prefix, mkdir=False)
+            if path:
+                rem = name[2:]
+                for f in os.listdir(path):
+                    if f.startswith(rem):
+                        candidates.append(prefix + f)
+    return candidates
+
+
 def object_find(repo, name, fmt=None, follow=True):
-    return name
+    sha = object_resolve(repo, name)
+    
+    if not sha:
+        raise Exception("Not such reference %s" % name)
+    if len(sha) > 1:
+        raise Exception("Ambigous reference")
+    
+    sha = sha[0] 
 
+    if not fmt:
+        return sha
+        
+    while True:
+        obj = object_read(repo, sha)
+        if obj.fmt == fmt:
+            return sha
+        if not follow:
+            return None
+        
+        if obj.fmt == b'tag':
+            sha = obj.kvlm[b"object"].decode("ascii")
+        elif obj.fmt == b"commit" and fmt == b"tree":
+            sha = obj.kvlm[b"tree"].decode("ascii")
+        else:
+            return None
+    
 
-def write_object(obj, actually_write=True):
+def object_write(obj, actually_write=True):
     data = obj.serialize()
     result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
     sha = hashlib.sha1(result).hexdigest()
@@ -501,3 +551,133 @@ def tree_checkout(repo, tree, path):
             f.write(obj.blobdata)
 
 
+def ref_resolve(repo, ref):
+    with open(repo_file(repo, ref), "r") as f:
+        data = f.read()[:-1]
+    if data.startswith("ref: "):
+        return ref_resolve(repo, data[5:])
+    else:
+        return data
+
+
+def ref_list(repo, path=None):
+    if not path:
+        path = repo_dir(repo, "refs")
+    ret = collections.OrderedDict()
+    for f in sorted(os.listdir(path)):
+        can = os.path.join(path, f)
+        if os.path.isdir(can):
+            ret[f] = ref_list(repo, can)
+        else:
+            ret[f] = ref_resolve(repo, can)
+    return ret
+
+
+argsp = argsubparsers.add_parser("show-ref", help="List references")
+
+
+def cmd_show_ref(args):
+    repo = repo_find()
+    refs = ref_list(repo)
+    show_ref(repo, refs, prefix="refs")
+
+
+def show_ref(repo, refs, with_hash=True, prefix=""):
+    for k, v in refs.items():
+        if type(v) == str:
+            print ("{0}{1}{2}".format(
+                v + " " if with_hash else "",
+                prefix + "/" if prefix else "",
+                k))
+        else:
+            sub_prefix = "{0}{1}{2}".format(prefix, "/" if prefix else "", k)
+            show_ref(repo, v, with_hash=with_hash, prefix=sub_prefix)
+
+
+class GitTag(GitCommit):
+    fmt = b'tag'
+
+
+argsp = argsubparsers.add_parser("tag", help="List and create tags")
+argsp.add_argument("-a",
+                   action="store_true",
+                   dest="create_tag_object",
+                   help="Whether to create a tag object")
+argsp.add_argument("name",
+                   nargs="?",
+                   help="The new tag's name")
+argsp.add_argument("object",
+                   default="HEAD",
+                   nargs="?",
+                   help="The object the new tag will point to")
+
+ # some bullshit github-issue-code
+def tag_create(name, obj, type):
+    repo = repo_find()
+
+    if type == "object":
+        tag = GitTag(repo)
+        tag.kvlm = collections.OrderedDict()
+        tag.kvlm[b'object'] = obj
+        tag.kvlm[b'type'] = b'commit'
+        tag.kvlm[b'tag'] = name.encode()
+        tag.kvlm[b'tagger'] = b' '
+        tag.kvlm[b''] = b'This is the commit message that should have come from the user\n'
+        tag_sha = object_write(tag, repo)
+        ref_create(repo, "tags/" + name, tag_sha)
+    else:
+        sha = object_find(repo, name)
+        ref_create(repo, "tags/" + name, sha)
+
+# some more
+def ref_create(repo, ref_name, sha):
+    with open(repo_file(repo, "refs/" + ref_name), 'w') as fp:
+        fp.write(sha + "\n")
+
+
+def cmd_tag(args):
+    repo = repo_find()
+    if args.name:
+        tag_create(args.name, 
+                   args.object, 
+                   type="object" if args.create_tag_object else "ref")
+    else:
+        refs = ref_list(repo)
+        show_ref(repo, refs["tags"], with_hash=False)
+
+
+argsp = argsubparsers.add_parser("rev-parse", help="Parse revision")
+argsp.add_argument("--wyag-type",
+                  metavar="type",
+                  dest="type",
+                  choices=["blob", "commit", "tag", "tree"],
+                  default=None,
+                  help="Specify the expected type")
+argsp.add_argument("name",
+                   help="The name to parse")
+
+
+def cmd_rev_parse(args):
+    if args.type:
+        # why is it here?
+        fmt = args.type.encode()
+    repo = repo_find()
+    print(object_find(repo, args.name, args.type, follow=True))
+
+
+class GitIndexEntry(object):
+    ctime = None
+    mtime = None
+    dev = None
+    ino = None
+    mode_type = None
+    mode_perms = None
+    uid = None
+    gid = None
+    size = None
+    obj = None
+    flag_assume_valid = None
+    flag_extended = None
+    flag_stage = None
+    flag_name_length = None
+    name = None
