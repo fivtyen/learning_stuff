@@ -376,7 +376,7 @@ class GitCommit(GitObject):
         return kvlm_serialize(self.kvlm)
 
 
-argsp.argsubparsers.add_parser("log", help="Display commit log")
+argsp = argsubparsers.add_parser("log", help="Display commit log")
 argsp.add_argument("commit",
                   default="HEAD",
                   nargs="?",
@@ -499,3 +499,5 @@ def tree_checkout(repo, tree, path):
     elif obj.fmt == b'blob':
         with open(dest, "wb") as f:
             f.write(obj.blobdata)
+
+
