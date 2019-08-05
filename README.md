@@ -1,3 +1,3 @@
-# learning_stuff
+# learning_projects
 
-Some leftover code from tutorials etc.
+Projects from books, tutorials etc.
